@@ -35,7 +35,8 @@ bool DEVELOPMENT_MODE = false;
 
 // Button configuration
 int BUTTON_PIN = 19;
-int BUTTON_DOUBLE_CLICK_DELAY = 300;
+int BUTTON_DEBOUNCE = 10;
+int BUTTON_TIMEOUT = 300;
 
 // Noise sensor pin
 int NOISE_SENSOR_PIN = 12;
@@ -199,12 +200,15 @@ void (*displayPages[8])() = {
 WiFiManager wm;
 
 // Define Variables for Double Click Detection
-unsigned long lastPressTime = 0;
-int pressCount = 0;
+byte buttonLast;
+enum
+{
+    None,
+    SingleClick,
+    DoubleClick
+};
 
 // Define Menu Options and Variables
-int button_clicked = 0; // only perform action when button is clicked, and wait until another press
-
 int item_selected = 0; // which item in the menu is selected
 
 int item_sel_previous; // previous item - used in the menu screen to draw the item before the selected one
@@ -558,38 +562,45 @@ const unsigned char bitmap_item_sel_outline[] PROGMEM = {
 
 // ***** Function Prototypes ***** //
 
+int checkButton(void)
+// Check button presses
+{
+    static unsigned long msecLast;
+    unsigned long msec = millis();
+
+    if (msecLast && (msec - msecLast) > BUTTON_TIMEOUT)
+    {
+        msecLast = 0;
+        return SingleClick;
+    }
+
+    byte button = digitalRead(BUTTON_PIN);
+    if (buttonLast != button)
+    {
+        buttonLast = button;
+        delay(BUTTON_DEBOUNCE); // **** debounce
+
+        if (LOW == button)
+        { // press
+            if (msecLast)
+            { // 2nd press
+                msecLast = 0;
+                return DoubleClick;
+            }
+            else
+                msecLast = 0 == msec ? 1 : msec;
+        }
+    }
+
+    return None;
+}
+
 void handleClick()
 // Function to handle button clicks
 {
-    if ((digitalRead(BUTTON_PIN) == LOW) && (button_clicked == 0))
-    {                       // button clicked - jump to next menu item
-        button_clicked = 1; // set button to clicked to only perform the action once
-
-        unsigned long currentTime = millis();
-        if (currentTime - lastPressTime < BUTTON_DOUBLE_CLICK_DELAY)
-        { // double click detected
-            pressCount++;
-        }
-        else
-        {
-            pressCount = 1;
-        }
-        lastPressTime = currentTime;
-
-        if (pressCount == 2)
-        { // double click action
-            if (current_page == 0)
-            {
-                current_page = 1;
-            } // menu items screen --> screenshots screen
-            else if (current_page == 1)
-            {
-                current_page = 0;
-            } // screenshots screen --> menu items screen
-            pressCount = 0; // reset press count after double click action
-            return;
-        }
-
+    int buttonState = checkButton();
+    if (buttonState == SingleClick)
+    {
         if (current_page == 0)
         {
             item_selected = item_selected + 1; // select next item
@@ -598,15 +609,17 @@ void handleClick()
                 item_selected = 0;
             }
         }
+    }
+    else if (buttonState == DoubleClick)
+    {
+        if (current_page == 0)
+        {
+            current_page = 1;
+        } // menu items screen --> sub-page screen
         else if (current_page == 1)
         {
-            // displayPages[item_selected](); // run the function corresponding to the selected item
-        }
-    }
-
-    if ((digitalRead(BUTTON_PIN) == HIGH) && (button_clicked == 1))
-    { // unclick
-        button_clicked = 0;
+            current_page = 0;
+        } // sub-page screen --> menu items screen
     }
 }
 
