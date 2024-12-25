@@ -173,11 +173,12 @@ void page_measure()
 
 void page_reboot()
 {
+    char str[] = "Rebooting";
     for (int i = 0; i < 8; i++)
     {
         u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_ncenB08_tr);
-        u8g2.drawStr(0, 30, "Rebooting...");
+        u8g2.setFont(u8g2_font_6x10_tr);
+        u8g2.drawStr((SCREEN_WIDTH - u8g2.getStrWidth(str)) / 2, 55, str);
         u8g2.drawCircle(64, 32, 10, U8G2_DRAW_ALL);
         u8g2.drawLine(64, 32, 64 + 10 * cos(i * 3.14 / 4), 32 + 10 * sin(i * 3.14 / 4));
         u8g2.sendBuffer();
@@ -646,13 +647,13 @@ void page_menu()
         u8g2.drawXBMP(4, 46, 16, 16, bitmap_icons[item_sel_next]);
 
         // draw scrollbar background
-        for (int i = 0; i < 64; i += 2)
+        for (int i = 0; i < SCREEN_HEIGHT; i += 2)
         {
             u8g2.drawPixel(126, i);
         }
 
         // draw scrollbar handle
-        int scrollbarHeight = 64 / NUM_ITEMS;
+        int scrollbarHeight = SCREEN_HEIGHT / NUM_ITEMS;
         u8g2.drawBox(125, scrollbarHeight * item_selected, 3, scrollbarHeight);
 
         // draw logo
