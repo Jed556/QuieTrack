@@ -13,7 +13,8 @@
 #include <SPIFFS.h>      // SPI Flash Syetem Library
 #include <WiFiManager.h> // WiFiManager Library
 #include <ArduinoJson.h> // Arduino JSON library
-#include <U8g2lib.h>
+#include <U8g2lib.h>     // Graphics Library
+#include <math.h>        // Math Library
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -28,18 +29,29 @@
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R2);  //This inverts Bitmap and text
 
+// Define Variables for Noise Reading
+float noiseLevel = 0;
+
 // ***** Configuration ***** //
 
 // Development mode
-bool DEVELOPMENT_MODE = false;
+#define DEVELOPMENT_MODE false
 
 // Button configuration
-int BUTTON_PIN = 19;
-int BUTTON_DEBOUNCE = 10;
-int BUTTON_TIMEOUT = 300;
+#define BUTTON_PIN 19
+#define BUTTON_DEBOUNCE 10
+#define BUTTON_TIMEOUT 300
 
 // Noise sensor pin
-int NOISE_SENSOR_PIN = 12;
+#define NOISE_SENSOR_PIN 35
+#define NOISE_REF_DB_DIFF 78
+#define NOISE_REF_READ 239
+// 78
+
+// ADC configuration
+#define RMS_SAMPLES 100
+#define REF_VOLTAGE 5
+#define ADC_RESOLUTION 4095
 
 // JSON configuration file
 #define JSON_CONFIG_FILE "/config.json"
@@ -49,6 +61,10 @@ int NOISE_SENSOR_PIN = 12;
 #define SCREEN_ADDRESS 0x3C // 0x3C or 0x3D
 #define SCREEN_WIDTH 128    // OLED display width, in pixels
 #define SCREEN_HEIGHT 64    // OLED display height, in pixels
+
+// Menu items configuration
+#define NUM_MENU_ITEMS 3          // number of items in the list
+#define MAX_MENU_ITEM_NAME_LEN 20 // maximum characters for the item name
 
 // Flag for saving data to json
 bool shouldSaveConfig = true;
@@ -60,140 +76,6 @@ int testNumber = 1234;
 // WiFiManager AP configuration
 char AP_SSID[50] = "QuieTrack";
 char AP_Pass[50] = "Jed55611";
-
-// Menu items configuration
-const int NUM_ITEMS = 3;        // number of items in the list
-const int MAX_ITEM_LENGTH = 20; // maximum characters for the item name
-
-// 'icon_config', 16x16px
-const unsigned char bitmap_icon_config[] PROGMEM = {0xc0, 0x03, 0x48, 0x12, 0x34, 0x2c, 0x02, 0x40, 0xc4, 0x23, 0x24, 0x24, 0x13, 0xc8, 0x11, 0x88, 0x11, 0x88, 0x13, 0xc8, 0x24, 0x24, 0xc4, 0x23, 0x02, 0x40, 0x34, 0x2c, 0x48, 0x12, 0xc0, 0x03};
-
-// 'icon_measure', 16x16px
-const unsigned char bitmap_icon_measure[] PROGMEM = {
-    0xE0,
-    0x07,
-    0x18,
-    0x18,
-    0x84,
-    0x24,
-    0x0A,
-    0x40,
-    0x12,
-    0x50,
-    0x21,
-    0x80,
-    0xC1,
-    0x81,
-    0x45,
-    0xA2,
-    0x41,
-    0x82,
-    0x81,
-    0x81,
-    0x05,
-    0xA0,
-    0x02,
-    0x40,
-    0xD2,
-    0x4B,
-    0xC4,
-    0x23,
-    0x18,
-    0x18,
-    0xE0,
-    0x07,
-};
-
-// 'icon_reboot', 16x16px
-const unsigned char bitmap_icon_reboot[] PROGMEM = {0x80, 0x00, 0x80, 0x00, 0x98, 0x0c, 0xa4, 0x12, 0x92, 0x24, 0x8a, 0x28, 0x85, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x0a, 0x28, 0x12, 0x24, 0xe4, 0x13, 0x18, 0x0c, 0xe0, 0x03};
-
-// Menu Item Icons
-const unsigned char *bitmap_icons[8] = {
-    bitmap_icon_config,
-    bitmap_icon_measure,
-    bitmap_icon_reboot,
-};
-
-// Menu Item Names
-char menu_items[NUM_ITEMS][MAX_ITEM_LENGTH] = {
-    {"Config"},
-    {"Measure"},
-    {"Reboot"},
-};
-
-void page_intro()
-{
-    u8g2.setFontMode(1);
-    u8g2.setBitmapMode(1);
-    u8g2.setFont(u8g2_font_6x10_tr);
-    u8g2.drawStr(38, 30, "QuieTrack");
-    u8g2.drawFrame(34, 17, 61, 20);
-    u8g2.setFont(u8g2_font_4x6_tr);
-    u8g2.drawStr(45, 47, "by Group 8");
-}
-
-void page_config()
-{
-    u8g2.setFont(u8g2_font_ncenB08_tr);
-    u8g2.setFont(u8g2_font_ncenB08_tr);
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        u8g2.drawStr(0, 10, "Connected");
-        u8g2.drawStr(0, 30, WiFi.SSID().c_str());
-        u8g2.drawStr(0, 50, WiFi.localIP().toString().c_str());
-    }
-    else
-    {
-        u8g2.drawStr(0, 10, "Not Connected");
-        u8g2.drawStr(0, 30, AP_SSID);
-        u8g2.drawStr(0, 50, WiFi.softAPIP().toString().c_str());
-    }
-}
-
-void drawLoudnessBar(float noiseLevel)
-// Draw the loudness bar
-{
-    int barWidth = map(noiseLevel, 0, 1023, 0, SCREEN_WIDTH); // Map noise level to screen width
-    u8g2.drawFrame(0, 40, SCREEN_WIDTH, 10);                  // Draw the outline of the bar
-    u8g2.drawBox(0, 40, barWidth, 10);                        // Draw the filled bar based on noise level
-}
-
-void page_measure()
-{
-    float noiseLevel = analogRead(NOISE_SENSOR_PIN);
-    char noiseStr[10];
-    sprintf(noiseStr, "%f", (float)noiseLevel);
-    u8g2.setFont(u8g2_font_ncenB08_tr);
-    u8g2.drawStr(0, 10, "Measure");
-    u8g2.drawStr(0, 30, "Noise Level: ");
-    u8g2.drawStr(90, 30, noiseStr);
-    drawLoudnessBar(noiseLevel);
-    Serial.println(noiseLevel);
-}
-
-void page_reboot()
-{
-    char str[] = "Rebooting";
-    for (int i = 0; i < 8; i++)
-    {
-        u8g2.clearBuffer();
-        u8g2.setFont(u8g2_font_6x10_tr);
-        u8g2.drawStr((SCREEN_WIDTH - u8g2.getStrWidth(str)) / 2, 55, str);
-        u8g2.drawCircle(64, 32, 10, U8G2_DRAW_ALL);
-        u8g2.drawLine(64, 32, 64 + 10 * cos(i * 3.14 / 4), 32 + 10 * sin(i * 3.14 / 4));
-        u8g2.sendBuffer();
-        delay(250); // Adjust delay for desired spinning speed
-        yield();
-    }
-    ESP.restart(); // Restart the ESP microcontroller
-}
-
-// Pages
-void (*displayPages[8])() = {
-    page_config,
-    page_measure,
-    page_reboot,
-};
 
 // ***** Internal Variables ***** //
 
@@ -210,356 +92,18 @@ enum
 };
 
 // Define Menu Options and Variables
-int item_selected = 0; // which item in the menu is selected
+int itemSelected = 0; // which item in the menu is selected
 
-int item_sel_previous; // previous item - used in the menu screen to draw the item before the selected one
-int item_sel_next;     // next item - used in the menu screen to draw next item after the selected one
+int itemSelPrevious; // previous item - used in the menu screen to draw the item before the selected one
+int itemSelNext;     // next item - used in the menu screen to draw next item after the selected one
 
-int current_page = 0; // 0 = menu, 1 = sub-page
+int currentPage = 0; // 0 = menu, 1 = sub-page
 
 // Bitmaps
-const unsigned char bitmap_logo[] PROGMEM = {
-    0x04, 0x74, 0x67, 0x24, 0x16, 0x11, 0x54, 0x35, 0x33, 0x35, 0x45, 0x54, 0x62, 0x36, 0x23};
+const unsigned char bitmap_logo[] PROGMEM = {0x04, 0x74, 0x67, 0x24, 0x16, 0x11, 0x54, 0x35, 0x33, 0x35, 0x45, 0x54, 0x62, 0x36, 0x23};
 
 // 'item_sel_outline', 128x21px
-const unsigned char bitmap_item_sel_outline[] PROGMEM = {
-    0xF8,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0x03,
-    0x04,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x04,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0x02,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x0C,
-    0xFC,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0x07,
-    0xF8,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0xFF,
-    0x03,
-};
+const unsigned char bitmap_item_sel_outline[] PROGMEM = {0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03};
 
 // ***** Function Prototypes ***** //
 
@@ -596,55 +140,181 @@ int checkButton(void)
     return None;
 }
 
-void handleClick()
-// Function to handle button clicks
+// 'icon_config', 16x16px
+const unsigned char bitmap_icon_config[] PROGMEM = {0xc0, 0x03, 0x48, 0x12, 0x34, 0x2c, 0x02, 0x40, 0xc4, 0x23, 0x24, 0x24, 0x13, 0xc8, 0x11, 0x88, 0x11, 0x88, 0x13, 0xc8, 0x24, 0x24, 0xc4, 0x23, 0x02, 0x40, 0x34, 0x2c, 0x48, 0x12, 0xc0, 0x03};
+
+// 'icon_measure', 16x16px
+const unsigned char bitmap_icon_measure[] PROGMEM = {0xE0, 0x07, 0x18, 0x18, 0x84, 0x24, 0x0A, 0x40, 0x12, 0x50, 0x21, 0x80, 0xC1, 0x81, 0x45, 0xA2, 0x41, 0x82, 0x81, 0x81, 0x05, 0xA0, 0x02, 0x40, 0xD2, 0x4B, 0xC4, 0x23, 0x18, 0x18, 0xE0, 0x07};
+
+// 'icon_reboot', 16x16px
+const unsigned char bitmap_icon_reboot[] PROGMEM = {0x80, 0x00, 0x80, 0x00, 0x98, 0x0c, 0xa4, 0x12, 0x92, 0x24, 0x8a, 0x28, 0x85, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x0a, 0x28, 0x12, 0x24, 0xe4, 0x13, 0x18, 0x0c, 0xe0, 0x03};
+
+// Menu Item Icons
+const unsigned char *bitmap_icons[NUM_MENU_ITEMS] = {
+    bitmap_icon_config,
+    bitmap_icon_measure,
+    bitmap_icon_reboot,
+};
+
+// Menu Item Names
+char menu_items[NUM_MENU_ITEMS][MAX_MENU_ITEM_NAME_LEN] = {
+    {"Config"},
+    {"Measure"},
+    {"Reboot"},
+};
+
+void page_intro()
 {
-    int buttonState = checkButton();
-    if (buttonState == SingleClick)
+    u8g2.setFontMode(1);
+    u8g2.setBitmapMode(1);
+    u8g2.setFont(u8g2_font_6x10_tr);
+    u8g2.drawStr(38, 30, "QuieTrack");
+    u8g2.drawFrame(34, 17, 61, 20);
+    u8g2.setFont(u8g2_font_4x6_tr);
+    u8g2.drawStr(45, 47, "by Group 8");
+}
+
+void page_config()
+{
+    int checkButton();
+    if (checkButton() == DoubleClick)
     {
-        if (current_page == 0)
-        {
-            item_selected = item_selected + 1; // select next item
-            if (item_selected >= NUM_ITEMS)
-            { // last item was selected, jump to first menu item
-                item_selected = 0;
-            }
-        }
+        currentPage = 0;
     }
-    else if (buttonState == DoubleClick)
+
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    if (WiFi.status() == WL_CONNECTED)
     {
-        if (current_page == 0)
-        {
-            current_page = 1;
-        } // menu items screen --> sub-page screen
-        else if (current_page == 1)
-        {
-            current_page = 0;
-        } // sub-page screen --> menu items screen
+        u8g2.drawStr(0, 10, "Connected");
+        u8g2.drawStr(0, 30, WiFi.SSID().c_str());
+        u8g2.drawStr(0, 50, WiFi.localIP().toString().c_str());
+    }
+    else
+    {
+        u8g2.drawStr(0, 10, "Not Connected");
+        u8g2.drawStr(0, 30, AP_SSID);
+        u8g2.drawStr(0, 50, WiFi.softAPIP().toString().c_str());
     }
 }
 
-void page_menu()
+void drawLoudnessBar(float noiseLevel)
+// Draw the loudness bar
 {
-    if (current_page == 0) // MENU SCREEN
+    int barWidth = map(noiseLevel, 0, 1023, 0, SCREEN_WIDTH); // Map noise level to screen width
+    u8g2.drawFrame(0, 40, SCREEN_WIDTH, 10);                  // Draw the outline of the bar
+    u8g2.drawBox(0, 40, barWidth, 10);                        // Draw the filled bar based on noise level
+}
+
+void page_measure()
+{
+    int checkButton();
+    if (checkButton() == DoubleClick)
     {
+        currentPage = 0;
+    }
+
+    char noiseStr[10];
+
+    int scaledNoise = (int)(noiseLevel * 100); // Scale the float and convert to integer
+    int wholePart = scaledNoise / 100;         // Get the whole number part
+    int decimalPart = scaledNoise % 100;       // Get the decimal part
+
+    // Create the formatted string manually
+    itoa(wholePart, noiseStr, 10);
+    strcat(noiseStr, ".");
+    char decimalStr[5];
+    itoa(decimalPart, decimalStr, 10);
+    strcat(noiseStr, decimalStr);
+    strcat(noiseStr, " db");
+
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(0, 10, "Measure");
+    u8g2.drawStr(0, 30, "Noise Level: ");
+    u8g2.drawStr(70, 30, noiseStr);
+    drawLoudnessBar(noiseLevel);
+    // Serial.print("Noise: ");
+    Serial.println(noiseLevel);
+    // Serial.println("db");
+}
+
+void page_reboot()
+{
+    char str[] = "Rebooting";
+    for (int i = 0; i < 8; i++)
+    {
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tr);
+        u8g2.drawStr((SCREEN_WIDTH - u8g2.getStrWidth(str)) / 2, 55, str);
+        u8g2.drawCircle(64, 32, 10, U8G2_DRAW_ALL);
+        u8g2.drawLine(64, 32, 64 + 10 * cos(i * 3.14 / 4), 32 + 10 * sin(i * 3.14 / 4));
+        u8g2.sendBuffer();
+        delay(250); // Adjust delay for desired spinning speed
+        yield();
+    }
+    ESP.restart(); // Restart the ESP microcontroller
+}
+
+// Pages
+void (*displayPages[8])() = {
+    page_config,
+    page_measure,
+    page_reboot,
+};
+
+void pageMenu()
+{
+    if (currentPage == 0) // MENU SCREEN
+    {
+        // Handle button clicks
+        int buttonState = checkButton();
+
+        if (buttonState == SingleClick)
+        {
+            if (currentPage == 0)
+            {
+                itemSelected = itemSelected + 1; // select next item
+                if (itemSelected >= NUM_MENU_ITEMS)
+                { // last item was selected, jump to first menu item
+                    itemSelected = 0;
+                }
+            }
+        }
+        else if (buttonState == DoubleClick && currentPage == 0)
+        {
+            currentPage = 1;
+            // menu items screen --> sub-page screen
+        }
+
+        // Set correct values for the previous and next items
+        itemSelPrevious = itemSelected - 1;
+        if (itemSelPrevious < 0)
+        {
+            itemSelPrevious = NUM_MENU_ITEMS - 1;
+        } // previous item would be below first = make it the last
+        itemSelNext = itemSelected + 1;
+        if (itemSelNext >= NUM_MENU_ITEMS)
+        {
+            itemSelNext = 0;
+        } // next item would be after last = make it the first
+
         // selected item background
         u8g2.drawXBMP(0, 22, 128, 21, bitmap_item_sel_outline);
 
         // draw previous item as icon + label
         u8g2.setFont(u8g_font_7x14);
-        u8g2.drawStr(25, 15, menu_items[item_sel_previous]);
-        u8g2.drawXBMP(4, 2, 16, 16, bitmap_icons[item_sel_previous]);
+        u8g2.drawStr(25, 15, menu_items[itemSelPrevious]);
+        u8g2.drawXBMP(4, 2, 16, 16, bitmap_icons[itemSelPrevious]);
 
         // draw selected item as icon + label in bold font
         u8g2.setFont(u8g_font_7x14B);
-        u8g2.drawStr(25, 15 + 20 + 2, menu_items[item_selected]);
-        u8g2.drawXBMP(4, 24, 16, 16, bitmap_icons[item_selected]);
+        u8g2.drawStr(25, 15 + 20 + 2, menu_items[itemSelected]);
+        u8g2.drawXBMP(4, 24, 16, 16, bitmap_icons[itemSelected]);
 
         // draw next item as icon + label
         u8g2.setFont(u8g_font_7x14);
-        u8g2.drawStr(25, 15 + 20 + 20 + 2 + 2, menu_items[item_sel_next]);
-        u8g2.drawXBMP(4, 46, 16, 16, bitmap_icons[item_sel_next]);
+        u8g2.drawStr(25, 15 + 20 + 20 + 2 + 2, menu_items[itemSelNext]);
+        u8g2.drawXBMP(4, 46, 16, 16, bitmap_icons[itemSelNext]);
 
         // draw scrollbar background
         for (int i = 0; i < SCREEN_HEIGHT; i += 2)
@@ -653,16 +323,58 @@ void page_menu()
         }
 
         // draw scrollbar handle
-        int scrollbarHeight = SCREEN_HEIGHT / NUM_ITEMS;
-        u8g2.drawBox(125, scrollbarHeight * item_selected, 3, scrollbarHeight);
+        int scrollbarHeight = SCREEN_HEIGHT / NUM_MENU_ITEMS;
+        u8g2.drawBox(125, scrollbarHeight * itemSelected, 3, scrollbarHeight);
 
         // draw logo
         u8g2.drawXBMP(128 - 16 - 4, 64 - 4, 16, 4, bitmap_logo);
     }
-    else if (current_page == 1) // DISPLAY SUB-PAGE
+    else if (currentPage == 1) // DISPLAY SUB-PAGE
     {
-        displayPages[item_selected](); // run the function corresponding to the selected item
+        displayPages[itemSelected](); // run the function corresponding to the selected item
     }
+}
+
+void collectAdcSamples(int *samples, int numSamples, int adcPin)
+// Function to read ADC samples
+{
+    for (int i = 0; i < numSamples; i++)
+    {
+        samples[i] = analogRead(adcPin);
+    }
+}
+
+float computeRMS(int *samples, int numSamples)
+// Calculates Root Mean Square (RMS) value
+{
+    long sum = 0;
+    for (int i = 0; i < numSamples; i++)
+    {
+        sum += samples[i] * samples[i];
+    }
+    return sqrt((float)sum / numSamples);
+}
+
+float adcToVoltage(float rmsValue, float refVoltage, int resolution)
+// Converts ADC RMS value to voltage
+{
+    return (rmsValue / resolution) * refVoltage;
+}
+
+float convertToDB(float voltage, float refVoltage)
+// Calculates decibel value from voltage
+{
+    if (voltage == 0)
+        return 0;
+    return 20 * log10(voltage / refVoltage);
+}
+
+float computeDecibels(int adcPin, float refVoltage, int adcResolution, int numSamples)
+// Handles decibel calculation
+{
+    int samples[numSamples];
+    collectAdcSamples(samples, numSamples, adcPin);
+    return convertToDB(adcToVoltage(computeRMS(samples, numSamples), refVoltage, adcResolution), refVoltage) + DB_DIFF;
 }
 
 void saveConfigFile()
@@ -901,23 +613,12 @@ void setup()
 
 void loop()
 {
-    handleClick(); // check how the button is pressed and handle the action
-
-    // set correct values for the previous and next items
-    item_sel_previous = item_selected - 1;
-    if (item_sel_previous < 0)
-    {
-        item_sel_previous = NUM_ITEMS - 1;
-    } // previous item would be below first = make it the last
-    item_sel_next = item_selected + 1;
-    if (item_sel_next >= NUM_ITEMS)
-    {
-        item_sel_next = 0;
-    } // next item would be after last = make it the first
+    noiseLevel = computeDecibels(NOISE_SENSOR_PIN, REF_VOLTAGE, ADC_RESOLUTION, RMS_SAMPLES); // Read noise level
+    Serial.println(noiseLevel);
 
     u8g2.clearBuffer(); // clear buffer for storing display content in RAM
 
-    page_menu(); // draw the menu screen
+    pageMenu(); // draw the menu screen
 
     u8g2.sendBuffer(); // send buffer from RAM to display controller
 }
