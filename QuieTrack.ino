@@ -44,8 +44,6 @@ float noiseLevel = 0;
 
 // Noise sensor pin
 #define NOISE_SENSOR_PIN 35
-#define NOISE_REF_DB_DIFF 78
-#define NOISE_REF_READ 239
 // 78
 
 // ADC configuration
@@ -70,8 +68,30 @@ float noiseLevel = 0;
 bool shouldSaveConfig = true;
 
 // Variables to hold data from custom textboxes
-char testString[50] = "test value";
-int testNumber = 1234;
+
+enum InputType
+// Custom input types
+{
+    STRING,
+    INT,
+    FLOAT
+};
+
+struct wmInput
+// Struct to hold custom WiFiManager inputs
+{
+    char *key;
+    char *textValue;
+    float floatValue;
+    char *text;
+    InputType type;
+    int max;
+};
+
+wmInput wmInputs[] = {
+    {"firebaseAPI", "API Key", 0.0, "Enter your Firebase API key", STRING, 50},
+    {"noiseRefDbDiff", "", 78.0, "Enter the noise decibel reference", FLOAT, 3},
+    {"noiseRefRead", "", 239.0, "Enter the noise sensor reading reference", INT, 4}};
 
 // WiFiManager AP configuration
 char AP_SSID[50] = "QuieTrack";
@@ -374,18 +394,82 @@ float computeDecibels(int adcPin, float refVoltage, int adcResolution, int numSa
 {
     int samples[numSamples];
     collectAdcSamples(samples, numSamples, adcPin);
-    return convertToDB(adcToVoltage(computeRMS(samples, numSamples), refVoltage, adcResolution), refVoltage) + DB_DIFF;
+    return convertToDB(adcToVoltage(computeRMS(samples, numSamples), refVoltage, adcResolution), refVoltage);
 }
 
-void saveConfigFile()
+void buildWmInputs(wmInput *wmInputs)
+// Build WiFiManager custom inputs
+{
+    // Loop through wmInputs and create parameters
+    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
+    {
+        if (wmInputs[i].type == STRING)
+        {
+            WiFiManagerParameter input(wmInputs[i].key, wmInputs[i].text, wmInputs[i].textValue, wmInputs[i].max);
+            wm.addParameter(&input);
+        }
+        else if (wmInputs[i].type == INT || wmInputs[i].type == FLOAT)
+        {
+            // Need to convert numerical input to string to display the default value.
+            char convertedValue[10];
+            sprintf(convertedValue, "%d", wmInputs[i].floatValue);
+
+            WiFiManagerParameter input(wmInputs[i].key, wmInputs[i].text, convertedValue, wmInputs[i].max);
+            wm.addParameter(&input);
+        }
+    }
+}
+
+void updateWmInputs(wmInput *wmInputs)
+// Update WiFiManager custom inputs
+{
+    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
+    {
+        bool matched = false;
+        for (int j = 0; j < wm.getParametersCount(); j++)
+        {
+            WiFiManagerParameter *param = wm.getParameters()[j];
+            if (strcmp(wmInputs[i].key, param->getID()) == 0)
+            {
+                matched = true;
+                if (wmInputs[i].type == STRING)
+                {
+                    strncpy(wmInputs[i].textValue, param->getValue(), wmInputs[i].max);
+                }
+                else if (wmInputs[i].type == INT || wmInputs[i].type == FLOAT)
+                {
+                    wmInputs[i].floatValue = atof(param->getValue());
+                }
+                break;
+            }
+        }
+        if (!matched)
+        {
+            // Handle unmatched keys if necessary
+        }
+    }
+}
+
+void saveConfigFile(wmInput *wmInputs)
 // Save Config in JSON format
 {
     Serial.println(F("Saving configuration..."));
 
     // Create a JSON document
     StaticJsonDocument<512> json;
-    json["testString"] = testString;
-    json["testNumber"] = testNumber;
+
+    // Add values to JSON document
+    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
+    {
+        if (wmInputs[i].type == STRING)
+        {
+            json[wmInputs[i].key] = wmInputs[i].textValue;
+        }
+        else if (wmInputs[i].type == INT || wmInputs[i].type == FLOAT)
+        {
+            json[wmInputs[i].key] = wmInputs[i].floatValue;
+        }
+    }
 
     // Open config file
     File configFile = SPIFFS.open(JSON_CONFIG_FILE, "w");
@@ -434,8 +518,18 @@ bool loadConfigFile()
                 {
                     Serial.println("Parsing JSON");
 
-                    strcpy(testString, json["testString"]);
-                    testNumber = json["testNumber"].as<int>();
+                    // Copy values from JSON to variables
+                    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
+                    {
+                        if (wmInputs[i].type == STRING)
+                        {
+                            strcpy(wmInputs[i].textValue, json[wmInputs[i].key]);
+                        }
+                        else if (wmInputs[i].type == INT || wmInputs[i].type == FLOAT)
+                        {
+                            wmInputs[i].floatValue = json[wmInputs[i].key];
+                        }
+                    }
 
                     return true;
                 }
@@ -459,8 +553,16 @@ bool loadConfigFile()
 void saveConfigCallback()
 // Callback notifying us of the need to save configuration
 {
-    Serial.println("Should save config");
+    Serial.println("[CALLBACK] saveConfigCallback fired");
     shouldSaveConfig = true;
+}
+
+void saveParamsCallback()
+{
+    if (shouldSaveConfig)
+    {
+        saveConfigFile(wmInputs);
+    }
 }
 
 void connectCallback(int failed = 0)
@@ -553,27 +655,20 @@ void setup()
         wm.resetSettings();
     }
 
+    // Dark mode
+    wm.setDarkMode(true);
+
     // Set config save notify callback
     wm.setSaveConfigCallback(saveConfigCallback);
+
+    // Set custom parameters save callback
+    wm.setSaveParamsCallback(saveParamsCallback);
 
     // Set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
     wm.setAPCallback(configModeCallback);
 
     // Custom elements
-
-    // Text box (String) - 50 characters maximum
-    WiFiManagerParameter custom_text_box("key_text", "Enter your string here", testString, 50);
-
-    // Need to convert numerical input to string to display the default value.
-    char convertedValue[6];
-    sprintf(convertedValue, "%d", testNumber);
-
-    // Text box (Number) - 7 characters maximum
-    WiFiManagerParameter custom_text_box_num("key_num", "Enter your number here", convertedValue, 7);
-
-    // Add all defined parameters
-    wm.addParameter(&custom_text_box);
-    wm.addParameter(&custom_text_box_num);
+    buildWmInputs(wmInputs);
 
     if (forceConfig) // Run configuration is needed
     {
@@ -592,22 +687,22 @@ void setup()
 
     connectCallback();
 
-    // User config values
-
-    // Copy the string value
-    strncpy(testString, custom_text_box.getValue(), sizeof(testString));
-    Serial.print("testString: ");
-    Serial.println(testString);
-
-    // Convert the number value
-    testNumber = atoi(custom_text_box_num.getValue());
-    Serial.print("testNumber: ");
-    Serial.println(testNumber);
-
-    // Save the custom parameters to FS
-    if (shouldSaveConfig)
+    // Update and display user config values
+    updateWmInputs(wmInputs);
+    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
     {
-        saveConfigFile();
+        if (wmInputs[i].type == STRING)
+        {
+            Serial.print(wmInputs[i].key);
+            Serial.print(": ");
+            Serial.println(wmInputs[i].textValue);
+        }
+        else if (wmInputs[i].type == INT || wmInputs[i].type == FLOAT)
+        {
+            Serial.print(wmInputs[i].key);
+            Serial.print(": ");
+            Serial.println(wmInputs[i].floatValue);
+        }
     }
 }
 
