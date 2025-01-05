@@ -1,4 +1,3 @@
-
 /*
     QuieTrack - A Noise Monitoring System
 
@@ -8,13 +7,32 @@
 
 #define ESP_DRD_USE_SPIFFS true
 
-#include <WiFi.h>        // WiFi Library
-#include <FS.h>          // File System Library
-#include <SPIFFS.h>      // SPI Flash Syetem Library
-#include <WiFiManager.h> // WiFiManager Library
-#include <ArduinoJson.h> // Arduino JSON library
-#include <U8g2lib.h>     // Graphics Library
-#include <math.h>        // Math Library
+#include <Arduino.h>        // Arduino Core Library
+#include <FS.h>             // File System Library
+#include <SPIFFS.h>         // SPI Flash Syetem Library
+#include <WiFiManager.h>    // WiFiManager Library
+#include <FirebaseClient.h> // Firebase Library
+#include <SD.h>             // Secure Digital Card Library
+#include <ArduinoJson.h>    // Arduino JSON library
+#include <U8g2lib.h>        // Graphics Library
+#include <math.h>           // Math Library
+
+// Wifi Library
+#if defined(ESP32) || defined(ARDUINO_RASPBERRY_PI_PICO_W) || defined(ARDUINO_GIGA) || defined(ARDUINO_OPTA)
+#include <WiFi.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#elif __has_include(<WiFiNINA.h>) || defined(ARDUINO_NANO_RP2040_CONNECT)
+#include <WiFiNINA.h>
+#elif __has_include(<WiFi101.h>)
+#include <WiFi101.h>
+#elif __has_include(<WiFiS3.h>) || defined(ARDUINO_UNOWIFIR4)
+#include <WiFiS3.h>
+#elif __has_include(<WiFiC3.h>) || defined(ARDUINO_PORTENTA_C33)
+#include <WiFiC3.h>
+#elif __has_include(<WiFi.h>)
+#include <WiFi.h>
+#endif
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -61,7 +79,7 @@ float noiseLevel = 0;
 #define SCREEN_HEIGHT 64    // OLED display height, in pixels
 
 // Menu items configuration
-#define NUM_MENU_ITEMS 3          // number of items in the list
+#define NUM_MENU_ITEMS 4          // number of items in the list
 #define MAX_MENU_ITEM_NAME_LEN 20 // maximum characters for the item name
 
 // Flag for saving data to json
@@ -72,9 +90,13 @@ bool shouldSaveConfig = true;
 enum InputType
 // Custom input types
 {
-    STRING,
     INT,
-    FLOAT
+    FLOAT,
+    DOUBLE,
+    BOOL,
+    STRING,
+    ARRAY,
+    JSON
 };
 
 struct wmInput
@@ -90,6 +112,9 @@ struct wmInput
 
 wmInput wmInputs[] = {
     {"firebaseAPI", "API Key", 0.0, "Enter your Firebase API key", STRING, 50},
+    {"firebaseEmail", "Email", 0.0, "Enter your Firebase Email", STRING, 50},
+    {"firebasePassword", "Password", 0.0, "Enter your Firebase Password", STRING, 50},
+    {"firebaseDatabaseURL", "Database URL", 0.0, "Enter your Firebase Database URL", STRING, 50},
     {"noiseRefDbDiff", "", 78.0, "Enter the noise decibel reference", FLOAT, 3},
     {"noiseRefRead", "", 239.0, "Enter the noise sensor reading reference", INT, 4}};
 
@@ -101,6 +126,9 @@ char AP_Pass[50] = "Jed55611";
 
 // Define WiFiManager Object
 WiFiManager wm;
+
+// Noise Variabls
+float noise, logTen;
 
 // Define Variables for Double Click Detection
 byte buttonLast;
@@ -123,7 +151,29 @@ int currentPage = 0; // 0 = menu, 1 = sub-page
 const unsigned char bitmap_logo[] PROGMEM = {0x04, 0x74, 0x67, 0x24, 0x16, 0x11, 0x54, 0x35, 0x33, 0x35, 0x45, 0x54, 0x62, 0x36, 0x23};
 
 // 'item_sel_outline', 128x21px
-const unsigned char bitmap_item_sel_outline[] PROGMEM = {0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03};
+const unsigned char bitmap_item_sel_outline[] PROGMEM = {0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07, 0xF8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03};
+
+FirebaseApp FbApp;
+
+#if defined(ESP32) || defined(ESP8266) || defined(ARDUINO_RASPBERRY_PI_PICO_W)
+#include <WiFiClientSecure.h>
+WiFiClientSecure ssl_client;
+#elif defined(ARDUINO_ARCH_SAMD) || defined(ARDUINO_UNOWIFIR4) || defined(ARDUINO_GIGA) || defined(ARDUINO_OPTA) || defined(ARDUINO_PORTENTA_C33) || defined(ARDUINO_NANO_RP2040_CONNECT)
+#include <WiFiSSLClient.h>
+WiFiSSLClient ssl_client;
+#endif
+
+using AsyncClient = AsyncClientClass;
+
+DefaultNetwork network;
+
+AsyncClient aClient(ssl_client, getNetwork(network));
+
+RealtimeDatabase Database;
+unsigned long tmo = 0;
+
+void asyncCB(AsyncResult &aResult);
+void printResult(AsyncResult &aResult);
 
 // ***** Function Prototypes ***** //
 
@@ -167,13 +217,17 @@ const unsigned char bitmap_icon_config[] PROGMEM = {0xc0, 0x03, 0x48, 0x12, 0x34
 const unsigned char bitmap_icon_measure[] PROGMEM = {0xE0, 0x07, 0x18, 0x18, 0x84, 0x24, 0x0A, 0x40, 0x12, 0x50, 0x21, 0x80, 0xC1, 0x81, 0x45, 0xA2, 0x41, 0x82, 0x81, 0x81, 0x05, 0xA0, 0x02, 0x40, 0xD2, 0x4B, 0xC4, 0x23, 0x18, 0x18, 0xE0, 0x07};
 
 // 'icon_reboot', 16x16px
-const unsigned char bitmap_icon_reboot[] PROGMEM = {0x80, 0x00, 0x80, 0x00, 0x98, 0x0c, 0xa4, 0x12, 0x92, 0x24, 0x8a, 0x28, 0x85, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x0a, 0x28, 0x12, 0x24, 0xe4, 0x13, 0x18, 0x0c, 0xe0, 0x03};
+const unsigned char bitmap_icon_reboot[] PROGMEM = {0x80, 0x00, 0x80, 0x00, 0x98, 0x0c, 0xa4, 0x12, 0x92, 0x24, 0x8a, 0x28, 0x85, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x05, 0x50, 0x0a, 0x28, 0x12, 0x24, 0xe4, 0x13, 0x18, 0x0c, 0xe0, 0x03};
+
+// 'icon_fireworks', 16x16px
+const unsigned char bitmap_icon_fireworks[] PROGMEM = {0x00, 0x00, 0x00, 0x10, 0x00, 0x29, 0x08, 0x10, 0x08, 0x00, 0x36, 0x00, 0x08, 0x08, 0x08, 0x08, 0x00, 0x00, 0x00, 0x63, 0x00, 0x00, 0x00, 0x08, 0x20, 0x08, 0x50, 0x00, 0x20, 0x00, 0x00, 0x00};
 
 // Menu Item Icons
 const unsigned char *bitmap_icons[NUM_MENU_ITEMS] = {
     bitmap_icon_config,
     bitmap_icon_measure,
     bitmap_icon_reboot,
+    bitmap_icon_fireworks,
 };
 
 // Menu Item Names
@@ -181,6 +235,7 @@ char menu_items[NUM_MENU_ITEMS][MAX_MENU_ITEM_NAME_LEN] = {
     {"Config"},
     {"Measure"},
     {"Reboot"},
+    {"Format"},
 };
 
 void page_intro()
@@ -275,11 +330,32 @@ void page_reboot()
     ESP.restart(); // Restart the ESP microcontroller
 }
 
+void page_format()
+{
+    char str[] = "Formatting";
+    for (int i = 0; i < 8; i++)
+    {
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_6x10_tr);
+        u8g2.drawStr((SCREEN_WIDTH - u8g2.getStrWidth(str)) / 2, 55, str);
+        u8g2.drawCircle(64, 32, 10, U8G2_DRAW_ALL);
+        u8g2.drawLine(64, 32, 64 + 10 * cos(i * 3.14 / 4), 32 + 10 * sin(i * 3.14 / 4));
+        u8g2.sendBuffer();
+        delay(250); // Adjust delay for desired spinning speed
+    }
+    wm.resetSettings(); // Reset WiFiManager settings
+    SPIFFS.format();    // Format the SPIFFS filesystem
+
+    ESP.restart(); // Restart the ESP microcontroller
+    yield();
+}
+
 // Pages
 void (*displayPages[8])() = {
     page_config,
     page_measure,
     page_reboot,
+    page_format,
 };
 
 void pageMenu()
@@ -450,6 +526,28 @@ void updateWmInputs(wmInput *wmInputs)
     }
 }
 
+// Gets a value from wmInputs based on the specified type
+void *getWmInputValue(wmInput *wmInputs, const char *key, InputType type)
+{
+    for (int i = 0; i < sizeof(wmInputs) / sizeof(wmInput); i++)
+    {
+        if (strcmp(wmInputs[i].key, key) == 0)
+        {
+            switch (type)
+            {
+            case STRING:
+                return wmInputs[i].textValue;
+            case INT:
+            case FLOAT:
+                return &wmInputs[i].floatValue;
+            default:
+                return nullptr;
+            }
+        }
+    }
+    return nullptr;
+}
+
 void saveConfigFile(wmInput *wmInputs)
 // Save Config in JSON format
 {
@@ -614,6 +712,78 @@ void configModeCallback(WiFiManager *myWiFiManager)
     Serial.println("");
 }
 
+void newFirebasePushTask(const String &path, void *value, InputType type)
+{
+    if (FbApp.ready())
+    {
+        switch (type)
+        {
+        case INT:
+            Serial.println("Asynchronous Push Int... ");
+            Database.push<int>(aClient, path, *(int *)value, asyncCB, "pushIntTask");
+            break;
+        case BOOL:
+            Serial.println("Asynchronous Push Bool... ");
+            Database.push<bool>(aClient, path, *(bool *)value, asyncCB, "pushBoolTask");
+            break;
+        case STRING:
+            Serial.println("Asynchronous Push String... ");
+            Database.push<String>(aClient, path, *(String *)value, asyncCB, "pushStringTask");
+            break;
+        case JSON:
+            Serial.println("Asynchronous Push JSON... ");
+            Database.push<object_t>(aClient, path, *(object_t *)value, asyncCB, "pushJsonTask");
+            break;
+        case FLOAT:
+            Serial.println("Asynchronous Push Float... ");
+            Database.push<number_t>(aClient, path, number_t(*(float *)value, 2), asyncCB, "pushFloatTask");
+            break;
+        case DOUBLE:
+            Serial.println("Asynchronous Push Double... ");
+            Database.push<number_t>(aClient, path, number_t(*(double *)value, 4), asyncCB, "pushDoubleTask");
+            break;
+        default:
+            Serial.println("Unsupported data type for Firebase push.");
+            break;
+        }
+    }
+}
+
+void asyncCB(AsyncResult &aResult)
+// Callback  for Firebase async tasks
+{
+    // WARNING!
+    // Do not put your codes inside the callback and printResult.
+
+    printFirebaseResult(aResult);
+}
+
+void printFirebaseResult(AsyncResult &aResult)
+// Print the result of the Firebase async task
+{
+    if (aResult.isEvent())
+    {
+        Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.appEvent().message().c_str(), aResult.appEvent().code());
+    }
+
+    if (aResult.isDebug())
+    {
+        Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
+    }
+
+    if (aResult.isError())
+    {
+        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
+    }
+
+    if (aResult.available())
+    {
+        if (aResult.to<RealtimeDatabaseResult>().name().length())
+            Firebase.printf("task: %s, name: %s\n", aResult.uid().c_str(), aResult.to<RealtimeDatabaseResult>().name().c_str());
+        Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
+    }
+}
+
 // ***** Setup and Loop ***** //
 
 void setup()
@@ -704,12 +874,57 @@ void setup()
             Serial.println(wmInputs[i].floatValue);
         }
     }
+
+    Firebase.printf("Firebase Client v%s\n", FIREBASE_CLIENT_VERSION);
+    Serial.println("Initializing Firebase App...");
+
+#if defined(ESP32) || defined(ESP8266) || defined(PICO_RP2040)
+    ssl_client.setInsecure();
+#if defined(ESP8266)
+    ssl_client.setBufferSizes(4096, 1024);
+#endif
+#endif
+
+    // Create an auth object using credentials from wmInputs
+    UserAuth user_auth(
+        (char *)getWmInputValue(wmInputs, "firebaseAPI", STRING),
+        (char *)getWmInputValue(wmInputs, "firebaseEmail", STRING),
+        (char *)getWmInputValue(wmInputs, "firebasePassword", STRING),
+        3000 /* expire period in seconds (<3600) */
+    );
+
+    // Initialize the FirebaseApp or auth task handler.
+    // To deinitialize, use deinitializeApp(app).
+    initializeApp(aClient, FbApp, getAuth(user_auth), asyncCB, "authTask");
+
+    // Binding the FirebaseApp for authentication handler.
+    // To unbind, use Database.resetApp();
+    FbApp.getApp<RealtimeDatabase>(Database);
+
+    Database.url((char *)getWmInputValue(wmInputs, "firebaseDatabaseURL", STRING));
 }
 
 void loop()
 {
-    noiseLevel = computeDecibels(NOISE_SENSOR_PIN, REF_VOLTAGE, ADC_RESOLUTION, RMS_SAMPLES); // Read noise level
+    // The async task handler should run inside the main loop
+    // without blocking delay or bypassing with millis code blocks.
+    FbApp.loop(); // Firebase async task handler
+    Database.loop();
+
+    noise = analogRead(NOISE_SENSOR_PIN);
+    logTen = log10(noise / (int)getWmInputValue(wmInputs, "noiseRefRead", INT));
+    if (noise == 0)
+        logTen = 0;
+    noiseLevel = 20 * logTen + (int)getWmInputValue(wmInputs, "noiseRefDbDiff", INT);
+    Serial.println();
+    Serial.print(noise);
+    Serial.print("\t");
     Serial.println(noiseLevel);
+
+    if (FbApp.ready() && millis() - tmo > 3000)
+    {
+        tmo = millis();
+    }
 
     u8g2.clearBuffer(); // clear buffer for storing display content in RAM
 
