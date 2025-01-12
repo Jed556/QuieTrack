@@ -855,10 +855,11 @@ void setup()
       (char *)getWmInputValue(wmInputs, wmInputsSize, "firebaseAPI", STRING),
       (char *)getWmInputValue(wmInputs, wmInputsSize, "firebaseEmail", STRING),
       (char *)getWmInputValue(wmInputs, wmInputsSize, "firebasePassword", STRING),
-      3000 /* expire period in seconds (<3600) */
+      60000 /* expire period in 1 min */
   );
 
-  // Initialize the FirebaseApp or auth task handler.To deinitialize, use deinitializeApp(app).initializeApp(aClient, FbApp, getAuth(user_auth), asyncCB, "authTask");
+  // Initialize the FirebaseApp or auth task handler.To deinitialize, use deinitializeApp(app).
+  initializeApp(aClient, FbApp, getAuth(user_auth), asyncCB, "authTask");
 
   // Binding the FirebaseApp for authentication handler.
   // To unbind, use Database.resetApp();
@@ -874,11 +875,10 @@ void loop()
   FbApp.loop(); // Firebase async task handler
   Database.loop();
 
-  noise = analogRead(NOISE_SENSOR_PIN);
-  computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-
   if (FbApp.ready() && millis() - tmo > dbTimeout)
   {
+    noise = analogRead(NOISE_SENSOR_PIN);
+    computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
     newFirebasePushTask("/noise", &noiseLevel, FLOAT);
     tmo = millis();
   }
