@@ -24,6 +24,7 @@ import { getDatabase, ref, set, onValue } from "firebase/database";
 import OrdersOverview from "layouts/dashboard/components/OrdersOverview";
 import Projects from "layouts/dashboard/components/Projects";
 import { useState, useEffect } from "react";
+import MDSnackbar from "components/MDSnackbar";
 
 function Dashboard() {
     const [controller] = useMaterialUIController();
@@ -33,9 +34,18 @@ function Dashboard() {
     const [noiseData, setNoiseData] = useState([]);
     const [topFrequentValues, setTopFrequentValues] = useState([]);
     const [topFrequentCounts, setTopFrequentCounts] = useState([]);
+    const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "warning" });
 
     const numLatestNoiseData = 10;
     const numFrequencyData = 7;
+
+    const handleSnackbarClose = () => {
+        setSnackbar({ ...snackbar, open: false });
+    };
+
+    const showSnackbar = (message, severity) => {
+        setSnackbar({ open: true, message, severity });
+    };
 
     useEffect(() => {
         const db = getDatabase();
@@ -47,6 +57,11 @@ function Dashboard() {
                 setNoiseData(noiseArray);
                 const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
                 setLatestNoiseData(latestNoiseData);
+
+                // Show snackbar if the latest noise level is higher than 90 decibels
+                if (latestNoiseData.length > 0 && latestNoiseData[latestNoiseData.length - 1] >= 90) {
+                    showSnackbar("Noise level exceeded 90 decibels!", "warning");
+                }
             } else {
                 console.log("No data found"); // Debugging line
             }
@@ -68,8 +83,6 @@ function Dashboard() {
         setTopFrequentValues(sortedFrequency.map(item => item[0]));
         setTopFrequentCounts(sortedFrequency.map(item => item[1]));
     }, [noiseData]);
-
-    console.log(noiseData); // Debugging line
 
     const noiseChartData = {
         labels: latestNoiseData.map((_, index) => `${index + 1}`),
@@ -209,6 +222,17 @@ function Dashboard() {
                 </MDBox> */}
             </MDBox>
             <Footer company={configs.footer.company} />
+            <MDSnackbar
+                color={snackbar.severity}
+                icon="notifications"
+                title="Noise Alert"
+                content={snackbar.message}
+                open={snackbar.open}
+                onClose={handleSnackbarClose}
+                close={handleSnackbarClose}
+                bgWhite
+                anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+            />
         </DashboardLayout>
     );
 }
