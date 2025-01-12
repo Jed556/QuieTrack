@@ -49,25 +49,32 @@ function Dashboard() {
 
     useEffect(() => {
         const db = getDatabase();
-        const dataRef = ref(db, 'noise/');
-        onValue(dataRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                const noiseArray = Object.values(data);
-                setNoiseData(noiseArray);
-                const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
-                setLatestNoiseData(latestNoiseData);
+        const dataRef = ref(db, "noise/");
+        onValue(
+            dataRef,
+            (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    const noiseArray = Object.values(data);
+                    setNoiseData(noiseArray);
+                    const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
+                    setLatestNoiseData(latestNoiseData);
 
-                // Show snackbar if the latest noise level is higher than 90 decibels
-                if (latestNoiseData.length > 0 && latestNoiseData[latestNoiseData.length - 1] >= 90) {
-                    showSnackbar("Noise level exceeded 90 decibels!", "warning");
+                    // Show snackbar if the latest noise level is higher than 90 decibels
+                    if (
+                        latestNoiseData.length > 0 &&
+                        latestNoiseData[latestNoiseData.length - 1] >= 90
+                    ) {
+                        showSnackbar("Noise level exceeded 90 decibels!", "warning");
+                    }
+                } else {
+                    console.log("No data found"); // Debugging line
                 }
-            } else {
-                console.log("No data found"); // Debugging line
+            },
+            (error) => {
+                console.error("Error fetching data:", error); // Debugging line
             }
-        }, (error) => {
-            console.error("Error fetching data:", error); // Debugging line
-        });
+        );
     }, []);
 
     useEffect(() => {
@@ -80,14 +87,13 @@ function Dashboard() {
             .sort((a, b) => b[1] - a[1])
             .slice(0, numFrequencyData);
 
-        setTopFrequentValues(sortedFrequency.map(item => item[0]));
-        setTopFrequentCounts(sortedFrequency.map(item => item[1]));
+        setTopFrequentValues(sortedFrequency.map((item) => item[0]));
+        setTopFrequentCounts(sortedFrequency.map((item) => item[1]));
     }, [noiseData]);
 
     const noiseChartData = {
         labels: latestNoiseData.map((_, index) => `${index + 1}`),
-        datasets:
-        {
+        datasets: {
             label: "Noise Level",
             data: latestNoiseData,
             borderColor: "rgba(75,192,192,1)",
@@ -98,8 +104,7 @@ function Dashboard() {
 
     const frequencyChartData = {
         labels: topFrequentValues,
-        datasets:
-        {
+        datasets: {
             label: "Frequency",
             data: topFrequentCounts,
             borderColor: "rgba(75,192,192,1)",
