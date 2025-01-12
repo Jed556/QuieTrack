@@ -677,41 +677,21 @@ void configModeCallback(WiFiManager *myWiFiManager)
   Serial.println("");
 }
 
-void newFirebasePushTask(const String &path, void *value, InputType type)
+void newFirebasePushTask(const String &path, float noiseLevel)
 {
-  if (FbApp.ready())
-  {
-    switch (type)
+    if (FbApp.ready())
     {
-    case INT:
-      Serial.println("Asynchronous Push Int... ");
-      Database.push<int>(aClient, path, *(int *)value, asyncCB, "pushIntTask");
-      break;
-    case BOOL:
-      Serial.println("Asynchronous Push Bool... ");
-      Database.push<bool>(aClient, path, *(bool *)value, asyncCB, "pushBoolTask");
-      break;
-    case STRING:
-      Serial.println("Asynchronous Push String... ");
-      Database.push<String>(aClient, path, *(String *)value, asyncCB, "pushStringTask");
-      break;
-    case JSON:
-      Serial.println("Asynchronous Push JSON... ");
-      Database.push<object_t>(aClient, path, *(object_t *)value, asyncCB, "pushJsonTask");
-      break;
-    case FLOAT:
-      Serial.println("Asynchronous Push Float... ");
-      Database.push<number_t>(aClient, path, number_t(*(float *)value, 2), asyncCB, "pushFloatTask");
-      break;
-    case DOUBLE:
-      Serial.println("Asynchronous Push Double... ");
-      Database.push<number_t>(aClient, path, number_t(*(double *)value, 4), asyncCB, "pushDoubleTask");
-      break;
-    default:
-      Serial.println("Unsupported data type for Firebase push.");
-      break;
+        object_t json, obj1, obj2;
+        JsonWriter writer;
+
+        // Create JSON object with time and value
+        writer.create(obj1, "time", number_t(millis(), 0)); // Use millis() for current time
+        writer.create(obj2, "value", number_t(noiseLevel, 2));
+        writer.join(json, 2, obj1, obj2);
+
+        Serial.println("Asynchronous Push JSON... ");
+        Database.push<object_t>(aClient, path, json, asyncCB, "pushJsonTask");
     }
-  }
 }
 
 void asyncCB(AsyncResult &aResult)
@@ -879,7 +859,7 @@ void loop()
   {
     noise = analogRead(NOISE_SENSOR_PIN);
     computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-    newFirebasePushTask("/noise", &noiseLevel, FLOAT);
+    newFirebasePushTask("/noise", noiseLevel);
     tmo = millis();
   }
 
