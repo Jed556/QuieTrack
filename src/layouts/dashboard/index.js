@@ -40,69 +40,75 @@ function Dashboard() {
 
     useEffect(() => {
         const db = getDatabase();
-        const dataRef = ref(db, "noise/");
-        onValue(
-            dataRef,
-            (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    const noiseArray = Object.values(data);
-                    const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
-                    const values = latestNoiseData.map((item) => item.value);
-                    const times = latestNoiseData.map((item) => new Date(item.time).toLocaleTimeString());
-                    setNoiseData(values);
-                    setNoiseLabels(times);
+        const noiseRef = ref(db, "noise/");
+        const timeRef = ref(db, "time/");
+        
+        const handleData = (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const noiseArray = Object.values(data);
+                const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
+                const values = latestNoiseData.map((item) => item.noise);
+                const times = latestNoiseData.map((item) =>
+                    new Date(item.time).toLocaleTimeString()
+                );
+                setNoiseData(values);
+                setNoiseLabels(times);
 
-                    // Set the latest noise data time
-                    if (latestNoiseData.length > 0) {
-                        const latestTime = new Date(latestNoiseData[latestNoiseData.length - 1].time);
-                        setLatestNoiseTime(latestTime.toLocaleString());
-                    }
-
-                    // Calculate hourly averages for the past 8 hours
-                    const hourlyData = {};
-                    const currentTime = new Date();
-                    noiseArray.forEach((item) => {
-                        const date = new Date(item.time);
-                        const hour = date.getHours();
-                        const timeDiff = (currentTime - date) / (1000 * 60 * 60); // Time difference in hours
-                        if (timeDiff <= numHourlyData) {
-                            if (!hourlyData[hour]) {
-                                hourlyData[hour] = [];
-                            }
-                            hourlyData[hour].push(item.value);
-                        }
-                    });
-
-                    const averages = [];
-                    const labels = [];
-                    for (let i = 0; i < numHourlyData; i++) {
-                        const hour = (currentTime.getHours() - i + 24) % 24;
-                        if (hourlyData[hour]) {
-                            const avg =
-                                hourlyData[hour].reduce((a, b) => a + b, 0) /
-                                hourlyData[hour].length;
-                            averages.push(avg);
-                            labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
-                        } else {
-                            averages.push(0);
-                            labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
-                        }
-                    }
-
-                    setHourlyAverages(averages.reverse());
-                    setHourlyLabels(labels.reverse());
-                } else {
-                    console.log("No data found"); // Debugging line
+                // Set the latest noise data time
+                if (latestNoiseData.length > 0) {
+                    const latestTime = new Date(
+                        latestNoiseData[latestNoiseData.length - 1].time
+                    );
+                    setLatestNoiseTime(latestTime.toLocaleString());
                 }
-            },
-            (error) => {
-                console.error("Error fetching data:", error); // Debugging line
-            }
-        );
-    }, []);
 
-    console.log(noiseData); // Debugging line
+                // Calculate hourly averages for the past 8 hours
+                const hourlyData = {};
+                const currentTime = new Date();
+                noiseArray.forEach((item) => {
+                    const date = new Date(item.time);
+                    const hour = date.getHours();
+                    const timeDiff = (currentTime - date) / (1000 * 60 * 60); // Time difference in hours
+                    if (timeDiff <= numHourlyData) {
+                        if (!hourlyData[hour]) {
+                            hourlyData[hour] = [];
+                        }
+                        hourlyData[hour].push(item.noise);
+                    }
+                });
+
+                const averages = [];
+                const labels = [];
+                for (let i = 0; i < numHourlyData; i++) {
+                    const hour = (currentTime.getHours() - i + 24) % 24;
+                    if (hourlyData[hour]) {
+                        const avg =
+                            hourlyData[hour].reduce((a, b) => a + b, 0) /
+                            hourlyData[hour].length;
+                        averages.push(avg);
+                        labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
+                    } else {
+                        averages.push(0);
+                        labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
+                    }
+                }
+
+                setHourlyAverages(averages.reverse());
+                setHourlyLabels(labels.reverse());
+            } else {
+                console.log("No data found"); // Debugging line
+            }
+        };
+
+        onValue(noiseRef, handleData, (error) => {
+            console.error("Error fetching noise data:", error); // Debugging line
+        });
+
+        onValue(timeRef, handleData, (error) => {
+            console.error("Error fetching time data:", error); // Debugging line
+        });
+    }, []);
 
     const noiseChartData = {
         labels: noiseLabels,
@@ -202,7 +208,7 @@ function Dashboard() {
                                 <ReportsBarChart
                                     color="info"
                                     title="Hourly Average Noise Levels"
-                                    description="Average noise levels for each hour"
+                                    description={`Average noise levels for the past ${numHourlyData} hours`}
                                     date={latestNoiseTime}
                                     chart={barChartData}
                                 />
@@ -213,7 +219,7 @@ function Dashboard() {
                                 <ReportsLineChart
                                     color="success"
                                     title="Noise Levels"
-                                    description="Last 20 noise data points"
+                                    description={`Latest ${numLatestNoiseData} noise data points`}
                                     date={latestNoiseTime}
                                     chart={noiseChartData}
                                 />
