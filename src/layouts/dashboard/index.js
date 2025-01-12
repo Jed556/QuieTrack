@@ -34,6 +34,7 @@ function Dashboard() {
     const [noiseData, setNoiseData] = useState([]);
     const [topFrequentValues, setTopFrequentValues] = useState([]);
     const [topFrequentCounts, setTopFrequentCounts] = useState([]);
+    const [latestUpdateTime, setLatestUpdateTime] = useState("");
     const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "warning" });
 
     const numLatestNoiseData = 10;
@@ -60,12 +61,15 @@ function Dashboard() {
                     const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
                     setLatestNoiseData(latestNoiseData);
 
-                    // Show snackbar if the latest noise level is higher than 90 decibels
-                    if (
-                        latestNoiseData.length > 0 &&
-                        latestNoiseData[latestNoiseData.length - 1] >= 90
-                    ) {
-                        showSnackbar("Noise level exceeded 90 decibels!", "warning");
+                    // Set the latest update time
+                    if (latestNoiseData.length > 0) {
+                        const latestTime = new Date();
+                        setLatestUpdateTime(latestTime.toLocaleString());
+
+                        // Show snackbar if the latest noise level is higher than 90 decibels
+                        if (latestNoiseData[latestNoiseData.length - 1] >= 90) {
+                            showSnackbar("Noise level exceeded 90 decibels!", "warning");
+                        }
                     }
                 } else {
                     console.log("No data found"); // Debugging line
@@ -184,9 +188,9 @@ function Dashboard() {
                             <MDBox mb={3}>
                                 <ReportsBarChart
                                     color="info"
-                                    title="Analytics"
-                                    description="Description"
-                                    date="time"
+                                    title="Top 7 Highest Noise Levels"
+                                    description="Top 7 highest noise levels and their frequencies"
+                                    date={latestUpdateTime}
                                     chart={frequencyChartData}
                                 />
                             </MDBox>
@@ -196,8 +200,8 @@ function Dashboard() {
                                 <ReportsLineChart
                                     color="success"
                                     title="Noise Levels"
-                                    description="Last 20 noise data points"
-                                    date="time"
+                                    description={`Latest ${numLatestNoiseData} noise data points`}
+                                    date={latestUpdateTime}
                                     chart={noiseChartData}
                                 />
                             </MDBox>

@@ -120,7 +120,7 @@ wmInput wmInputs[] = {
     {"firebaseEmail", "Email", 0.0, "Firebase Account Email", STRING, 50, nullptr},
     {"firebasePassword", "Password", 0.0, "Firebase Account Password", STRING, 50, nullptr},
     {"firebaseDatabaseURL", "Database URL", 0.0, "Firebase Database URL", STRING, 100, nullptr},
-    // {"firebaseUpdateInterval", "", 1000, "Database Update Interval (ms)", INT, 6, nullptr},
+    {"firebaseUpdateInterval", "", 1000, "Database Update Interval (ms)", INT, 6, nullptr},
     {"noiseRefDbDiff", "", 78, "Noise Decibel Reference", INT, 3, nullptr},
     {"noiseRefRead", "", 239, "Noise Sensor Reading Reference", INT, 4, nullptr},
 };
@@ -869,12 +869,12 @@ void loop()
   FbApp.loop(); // Firebase async task handler
   Database.loop();
 
-  if (FbApp.ready() && millis() - tmo > dbTimeout)
-  {
-    noise = analogRead(NOISE_SENSOR_PIN);
+  noise = analogRead(NOISE_SENSOR_PIN);
+  computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
+  int noiseLevelInt = static_cast<int>(noiseLevel);
 
-    computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-    int noiseLevelInt = static_cast<int>(noiseLevel);
+  if (FbApp.ready() && millis() - tmo > *(int *)getWmInputValue(wmInputs, wmInputsSize, "firebaseUpdateInterval", INT))
+  {
     newFirebasePushTask("/noise", &noiseLevelInt, INT);
 
     tmo = millis();
