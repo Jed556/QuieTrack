@@ -62,7 +62,6 @@ float noiseLevel = 0;
 
 // Noise sensor pin
 #define NOISE_SENSOR_PIN 35
-// 78
 
 // ADC configuration
 #define RMS_SAMPLES 100
@@ -84,6 +83,9 @@ float noiseLevel = 0;
 
 // Flag for saving data to json
 bool shouldSaveConfig = true;
+
+// Database timeout in milliseconds
+int dbTimeout = 1000;
 
 // Variables to hold data from custom textboxes
 
@@ -112,14 +114,15 @@ struct wmInput
 };
 
 wmInput wmInputs[] = {
-    {"apSsid", "QuieTrack", 0.0, "Enter the AP SSID", STRING, 50, nullptr},
-    {"apPass", "Jed55611", 0.0, "Enter the AP Password", STRING, 50, nullptr},
-    {"firebaseAPI", "API Key", 0.0, "Enter your Firebase API key", STRING, 50, nullptr},
-    {"firebaseEmail", "Email", 0.0, "Enter your Firebase Email", STRING, 50, nullptr},
-    {"firebasePassword", "Password", 0.0, "Enter your Firebase Password", STRING, 50, nullptr},
-    {"firebaseDatabaseURL", "Database URL", 0.0, "Enter your Firebase Database URL", STRING, 50, nullptr},
-    {"noiseRefDbDiff", "", 78, "Enter the noise decibel reference", INT, 3, nullptr},
-    {"noiseRefRead", "", 239, "Enter the noise sensor reading reference", INT, 4, nullptr},
+    {"apSsid", "QuieTrack", 0.0, "Access Point SSID", STRING, 50, nullptr},
+    {"apPass", "Jed55611", 0.0, "Access Point Password", STRING, 50, nullptr},
+    {"firebaseAPI", "API Key", 0.0, "Firebase API Key", STRING, 50, nullptr},
+    {"firebaseEmail", "Email", 0.0, "Firebase Account Email", STRING, 50, nullptr},
+    {"firebasePassword", "Password", 0.0, "Firebase Account Password", STRING, 50, nullptr},
+    {"firebaseDatabaseURL", "Database URL", 0.0, "Firebase Database URL", STRING, 100, nullptr},
+    {"firebaseUpdateInterval", "", 1000, "Database Update Interval (ms)", INT, 3, nullptr},
+    {"noiseRefDbDiff", "", 78, "Noise Decibel Reference", INT, 3, nullptr},
+    {"noiseRefRead", "", 239, "Noise Sensor Reading Reference", INT, 4, nullptr},
 };
 
 // ***** Internal Variables ***** //
@@ -436,7 +439,7 @@ void pageMenu()
   }
 }
 
-float computeDecibels(int read, int refDbDiff, int refRead)
+float computeDecibels(int read, int refRead, int refDbDiff)
 // Handles decibel calculation
 {
   if (read == 0 || refRead == 0)
@@ -873,8 +876,9 @@ void loop()
 
   computeDecibels(analogRead(NOISE_SENSOR_PIN), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
 
-  if (FbApp.ready() && millis() - tmo > 3000)
+  if (FbApp.ready() && millis() - tmo > dbTimeout)
   {
+    newFirebasePushTask("/noise", &noiseLevel, FLOAT);
     tmo = millis();
   }
 
