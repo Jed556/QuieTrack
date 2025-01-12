@@ -33,8 +33,6 @@
 #elif __has_include(<WiFi.h>)
 #include <WiFi.h>
 #endif
-#include <WiFiUdp.h>
-#include <NTPClient.h>
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -134,8 +132,6 @@ int wmInputsSize = sizeof(wmInputs) / sizeof(wmInput);
 
 // Define Wifi Objects
 WiFiManager wm;
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
 
 // Noise Variabls
 float noise, logTen;
@@ -699,6 +695,12 @@ void newFirebasePushTask(const String &path, void *value, InputType type)
       Serial.println("Asynchronous Push String... ");
       Database.push<String>(aClient, path, *(String *)value, asyncCB, "pushStringTask");
       break;
+    case FLOAT:
+      Database.push<number_t>(aClient, "/test/float", number_t(123.456, 2), asyncCB, "pushFloatTask");
+      break;
+    case DOUBLE:
+      Database.push<number_t>(aClient, "/test/double", number_t(1234.56789, 4), asyncCB, "pushDoubleTask");
+      break;
     default:
       Serial.println("Unsupported data type for Firebase push.");
       break;
@@ -832,15 +834,6 @@ void setup()
     }
   }
 
-  // Start TimeClient
-  timeClient.begin();
-  // Set offset time in seconds to adjust for your timezone, for example:
-  // GMT +1 = 3600
-  // GMT +8 = 28800
-  // GMT -1 = -3600
-  // GMT 0 = 0
-  timeClient.setTimeOffset(28800);
-
   Firebase.printf("Firebase Client v%s\n", FIREBASE_CLIENT_VERSION);
   Serial.println("Initializing Firebase App...");
 
@@ -876,19 +869,12 @@ void loop()
   FbApp.loop(); // Firebase async task handler
   Database.loop();
 
-  while (!timeClient.update())
-  {
-    timeClient.forceUpdate();
-  }
-
   if (FbApp.ready() && millis() - tmo > dbTimeout)
   {
     noise = analogRead(NOISE_SENSOR_PIN);
-    time = timeClient.getEpochTime();
 
     computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-    newFirebasePushTask("/noise", &noiseLevel, FLOAT);
-    newFirebasePushTask("/time", &time, INT);
+    newFirebasePushTask("/noise", &noiseLevel, INT);
 
     tmo = millis();
   }
