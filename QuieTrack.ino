@@ -2,7 +2,7 @@
     QuieTrack - A Noise Monitoring System
 
     Jerrald J. Guiriba
-    https://github.com/Jed556
+    https://github.com/Jed556/QuieTrack
 */
 
 #define ESP_DRD_USE_SPIFFS true
