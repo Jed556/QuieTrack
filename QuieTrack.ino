@@ -696,10 +696,10 @@ void newFirebasePushTask(const String &path, void *value, InputType type)
       Database.push<String>(aClient, path, *(String *)value, asyncCB, "pushStringTask");
       break;
     case FLOAT:
-      Database.push<number_t>(aClient, "/test/float", number_t(123.456, 2), asyncCB, "pushFloatTask");
+      Database.push<number_t>(aClient, "/test/float", number_t(*(float *)value, 2), asyncCB, "pushFloatTask");
       break;
     case DOUBLE:
-      Database.push<number_t>(aClient, "/test/double", number_t(1234.56789, 4), asyncCB, "pushDoubleTask");
+      Database.push<number_t>(aClient, "/test/double", number_t(*(double *)value, 4), asyncCB, "pushDoubleTask");
       break;
     default:
       Serial.println("Unsupported data type for Firebase push.");
@@ -874,7 +874,8 @@ void loop()
     noise = analogRead(NOISE_SENSOR_PIN);
 
     computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-    newFirebasePushTask("/noise", &noiseLevel, INT);
+    int noiseLevelInt = static_cast<int>(noiseLevel);
+    newFirebasePushTask("/noise", &noiseLevelInt, INT);
 
     tmo = millis();
   }
