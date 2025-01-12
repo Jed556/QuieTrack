@@ -29,108 +29,70 @@ function Dashboard() {
     const [controller] = useMaterialUIController();
     const { sidenavColor } = controller;
 
+    const [latestNoiseData, setLatestNoiseData] = useState([]);
     const [noiseData, setNoiseData] = useState([]);
-    const [noiseLabels, setNoiseLabels] = useState([]);
-    const [hourlyAverages, setHourlyAverages] = useState([]);
-    const [hourlyLabels, setHourlyLabels] = useState([]);
-    const [latestNoiseTime, setLatestNoiseTime] = useState("");
+    const [topFrequentValues, setTopFrequentValues] = useState([]);
+    const [topFrequentCounts, setTopFrequentCounts] = useState([]);
 
     const numLatestNoiseData = 10;
-    const numHourlyData = 7;
+    const numFrequencyData = 7;
 
     useEffect(() => {
         const db = getDatabase();
-        const noiseRef = ref(db, "noise/");
-        const timeRef = ref(db, "time/");
-
-        const handleData = (snapshot) => {
+        const dataRef = ref(db, 'noise/');
+        onValue(dataRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 const noiseArray = Object.values(data);
+                setNoiseData(noiseArray);
                 const latestNoiseData = noiseArray.slice(-numLatestNoiseData);
-                const values = latestNoiseData.map((item) => item.noise);
-                const times = latestNoiseData.map((item) =>
-                    new Date(item.time).toLocaleTimeString()
-                );
-                setNoiseData(values);
-                setNoiseLabels(times);
-
-                // Set the latest noise data time
-                if (latestNoiseData.length > 0) {
-                    const latestTime = new Date(latestNoiseData[latestNoiseData.length - 1].time);
-                    setLatestNoiseTime(latestTime.toLocaleString());
-                }
-
-                // Calculate hourly averages for the past 8 hours
-                const hourlyData = {};
-                const currentTime = new Date();
-                noiseArray.forEach((item) => {
-                    const date = new Date(item.time);
-                    const hour = date.getHours();
-                    const timeDiff = (currentTime - date) / (1000 * 60 * 60); // Time difference in hours
-                    if (timeDiff <= numHourlyData) {
-                        if (!hourlyData[hour]) {
-                            hourlyData[hour] = [];
-                        }
-                        hourlyData[hour].push(item.noise);
-                    }
-                });
-
-                const averages = [];
-                const labels = [];
-                for (let i = 0; i < numHourlyData; i++) {
-                    const hour = (currentTime.getHours() - i + 24) % 24;
-                    if (hourlyData[hour]) {
-                        const avg =
-                            hourlyData[hour].reduce((a, b) => a + b, 0) / hourlyData[hour].length;
-                        averages.push(avg);
-                        labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
-                    } else {
-                        averages.push(0);
-                        labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
-                    }
-                }
-
-                setHourlyAverages(averages.reverse());
-                setHourlyLabels(labels.reverse());
+                setLatestNoiseData(latestNoiseData);
             } else {
                 console.log("No data found"); // Debugging line
             }
-        };
-
-        onValue(noiseRef, handleData, (error) => {
-            console.error("Error fetching noise data:", error); // Debugging line
-        });
-
-        onValue(timeRef, handleData, (error) => {
-            console.error("Error fetching time data:", error); // Debugging line
+        }, (error) => {
+            console.error("Error fetching data:", error); // Debugging line
         });
     }, []);
 
+    useEffect(() => {
+        const frequencyMap = noiseData.reduce((acc, value) => {
+            acc[value] = (acc[value] || 0) + 1;
+            return acc;
+        }, {});
+
+        const sortedFrequency = Object.entries(frequencyMap)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, numFrequencyData);
+
+        setTopFrequentValues(sortedFrequency.map(item => item[0]));
+        setTopFrequentCounts(sortedFrequency.map(item => item[1]));
+    }, [noiseData]);
+
+    console.log(noiseData); // Debugging line
+
     const noiseChartData = {
-        labels: noiseLabels,
-        datasets: [
-            {
-                label: "Noise Level",
-                data: noiseData,
-                borderColor: "rgba(75,192,192,1)",
-                backgroundColor: "rgba(75,192,192,0.2)",
-                fill: true,
-            },
-        ],
+        labels: latestNoiseData.map((_, index) => `${index + 1}`),
+        datasets:
+        {
+            label: "Noise Level",
+            data: latestNoiseData,
+            borderColor: "rgba(75,192,192,1)",
+            backgroundColor: "rgba(75,192,192,0.2)",
+            fill: true,
+        },
     };
 
-    const barChartData = {
-        labels: hourlyLabels,
-        datasets: [
-            {
-                label: "Average Noise Level",
-                data: hourlyAverages,
-                backgroundColor: "rgba(75,192,192,0.2)",
-                borderColor: "rgba(75,192,192,1)",
-                borderWidth: 1,
-            },
-        ],
+    const frequencyChartData = {
+        labels: topFrequentValues,
+        datasets:
+        {
+            label: "Frequency",
+            data: topFrequentCounts,
+            borderColor: "rgba(75,192,192,1)",
+            backgroundColor: "rgba(75,192,192,0.2)",
+            fill: true,
+        },
     };
 
     return (
@@ -204,10 +166,10 @@ function Dashboard() {
                             <MDBox mb={3}>
                                 <ReportsBarChart
                                     color="info"
-                                    title="Hourly Average Noise Levels"
-                                    description={`Average noise levels for the past ${numHourlyData} hours`}
-                                    date={latestNoiseTime}
-                                    chart={barChartData}
+                                    title="Analytics"
+                                    description="Description"
+                                    date="time"
+                                    chart={frequencyChartData}
                                 />
                             </MDBox>
                         </Grid>
@@ -216,8 +178,8 @@ function Dashboard() {
                                 <ReportsLineChart
                                     color="success"
                                     title="Noise Levels"
-                                    description={`Latest ${numLatestNoiseData} noise data points`}
-                                    date={latestNoiseTime}
+                                    description="Last 20 noise data points"
+                                    date="time"
                                     chart={noiseChartData}
                                 />
                             </MDBox>
@@ -235,7 +197,7 @@ function Dashboard() {
                         </Grid> */}
                     </Grid>
                 </MDBox>
-                <MDBox>
+                {/* <MDBox>
                     <Grid container spacing={3}>
                         <Grid item xs={12} md={6} lg={8}>
                             <Projects />
@@ -244,7 +206,7 @@ function Dashboard() {
                             <OrdersOverview />
                         </Grid>
                     </Grid>
-                </MDBox>
+                </MDBox> */}
             </MDBox>
             <Footer company={configs.footer.company} />
         </DashboardLayout>
