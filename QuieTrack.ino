@@ -33,6 +33,8 @@
 #elif __has_include(<WiFi.h>)
 #include <WiFi.h>
 #endif
+#include <WiFiUdp.h>
+#include <NTPClient.h>
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -130,8 +132,10 @@ wmInput wmInputs[] = {
 // Get wmInputs size
 int wmInputsSize = sizeof(wmInputs) / sizeof(wmInput);
 
-// Define WiFiManager Object
+// Define Wifi Objects
 WiFiManager wm;
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 // Noise Variabls
 float noise, logTen;
@@ -677,21 +681,29 @@ void configModeCallback(WiFiManager *myWiFiManager)
   Serial.println("");
 }
 
-void newFirebasePushTask(const String &path, float noiseLevel)
+void newFirebasePushTask(const String &path, void *value, InputType type)
 {
-    if (FbApp.ready())
+  if (FbApp.ready())
+  {
+    switch (type)
     {
-        object_t json, obj1, obj2;
-        JsonWriter writer;
-
-        // Create JSON object with time and value
-        writer.create(obj1, "time", number_t(millis(), 0)); // Use millis() for current time
-        writer.create(obj2, "value", number_t(noiseLevel, 2));
-        writer.join(json, 2, obj1, obj2);
-
-        Serial.println("Asynchronous Push JSON... ");
-        Database.push<object_t>(aClient, path, json, asyncCB, "pushJsonTask");
+    case INT:
+      Serial.println("Asynchronous Push Int... ");
+      Database.push<int>(aClient, path, *(int *)value, asyncCB, "pushIntTask");
+      break;
+    case BOOL:
+      Serial.println("Asynchronous Push Bool... ");
+      Database.push<bool>(aClient, path, *(bool *)value, asyncCB, "pushBoolTask");
+      break;
+    case STRING:
+      Serial.println("Asynchronous Push String... ");
+      Database.push<String>(aClient, path, *(String *)value, asyncCB, "pushStringTask");
+      break;
+    default:
+      Serial.println("Unsupported data type for Firebase push.");
+      break;
     }
+  }
 }
 
 void asyncCB(AsyncResult &aResult)
@@ -820,6 +832,15 @@ void setup()
     }
   }
 
+  // Start TimeClient
+  timeClient.begin();
+  // Set offset time in seconds to adjust for your timezone, for example:
+  // GMT +1 = 3600
+  // GMT +8 = 28800
+  // GMT -1 = -3600
+  // GMT 0 = 0
+  timeClient.setTimeOffset(28800);
+
   Firebase.printf("Firebase Client v%s\n", FIREBASE_CLIENT_VERSION);
   Serial.println("Initializing Firebase App...");
 
@@ -855,11 +876,20 @@ void loop()
   FbApp.loop(); // Firebase async task handler
   Database.loop();
 
+  while (!timeClient.update())
+  {
+    timeClient.forceUpdate();
+  }
+
   if (FbApp.ready() && millis() - tmo > dbTimeout)
   {
     noise = analogRead(NOISE_SENSOR_PIN);
+    time = timeClient.getEpochTime();
+
     computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
-    newFirebasePushTask("/noise", noiseLevel);
+    newFirebasePushTask("/noise", &noiseLevel, FLOAT);
+    newFirebasePushTask("/time", &time, INT);
+
     tmo = millis();
   }
 
