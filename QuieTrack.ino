@@ -120,7 +120,7 @@ wmInput wmInputs[] = {
     {"firebaseEmail", "Email", 0.0, "Firebase Account Email", STRING, 50, nullptr},
     {"firebasePassword", "Password", 0.0, "Firebase Account Password", STRING, 50, nullptr},
     {"firebaseDatabaseURL", "Database URL", 0.0, "Firebase Database URL", STRING, 100, nullptr},
-    {"firebaseUpdateInterval", "", 1000, "Database Update Interval (ms)", INT, 3, nullptr},
+    {"firebaseUpdateInterval", "", 1000, "Database Update Interval (ms)", INT, 6, nullptr},
     {"noiseRefDbDiff", "", 78, "Noise Decibel Reference", INT, 3, nullptr},
     {"noiseRefRead", "", 239, "Noise Sensor Reading Reference", INT, 4, nullptr},
 };
@@ -279,12 +279,12 @@ void page_config()
   }
 }
 
-void drawLoudnessBar(float noiseLevel)
+void drawLoudnessBar(float noise)
 // Draw the loudness bar
 {
-  int barWidth = map(noiseLevel, 0, 1023, 0, SCREEN_WIDTH); // Map noise level to screen width
-  u8g2.drawFrame(0, 40, SCREEN_WIDTH, 10);                  // Draw the outline of the bar
-  u8g2.drawBox(0, 40, barWidth, 10);                        // Draw the filled bar based on noise level
+  int barWidth = map(noise, 0, 4095, 0, SCREEN_WIDTH); // Map noise level to screen width
+  u8g2.drawFrame(0, 40, SCREEN_WIDTH, 10);             // Draw the outline of the bar
+  u8g2.drawBox(0, 40, barWidth, 10);                   // Draw the filled bar based on noise level
 }
 
 void page_measure()
@@ -312,8 +312,8 @@ void page_measure()
   u8g2.setFont(u8g2_font_ncenB08_tr);
   u8g2.drawStr(0, 10, "Measure");
   u8g2.drawStr(0, 30, "Noise Level: ");
-  u8g2.drawStr(70, 30, noiseStr);
-  drawLoudnessBar(noiseLevel);
+  u8g2.drawStr(75, 30, noiseStr);
+  drawLoudnessBar(noise);
 
   Serial.println();
   Serial.print(noise);
@@ -439,13 +439,13 @@ void pageMenu()
   }
 }
 
-float computeDecibels(int read, int refRead, int refDbDiff)
+float computeDecibels(float read, float refRead, float refDbDiff)
 // Handles decibel calculation
 {
   if (read == 0 || refRead == 0)
     logTen = 0;
   else
-    logTen = log10(noise / refRead);
+    logTen = log10(read / refRead);
 
   noiseLevel = 20 * logTen + refDbDiff;
 
@@ -864,7 +864,7 @@ void setup()
   // To unbind, use Database.resetApp();
   FbApp.getApp<RealtimeDatabase>(Database);
 
-  Database.url((const char *)getWmInputValue(wmInputs, wmInputsSize, "firebaseHost", STRING));
+  Database.url((const char *)getWmInputValue(wmInputs, wmInputsSize, "firebaseDatabaseURL", STRING));
 }
 
 void loop()
@@ -874,7 +874,8 @@ void loop()
   FbApp.loop(); // Firebase async task handler
   Database.loop();
 
-  computeDecibels(analogRead(NOISE_SENSOR_PIN), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
+  noise = analogRead(NOISE_SENSOR_PIN);
+  computeDecibels(noise, *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefRead", INT), *(int *)getWmInputValue(wmInputs, wmInputsSize, "noiseRefDbDiff", INT));
 
   if (FbApp.ready() && millis() - tmo > dbTimeout)
   {
