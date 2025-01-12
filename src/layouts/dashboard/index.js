@@ -42,7 +42,7 @@ function Dashboard() {
         const db = getDatabase();
         const noiseRef = ref(db, "noise/");
         const timeRef = ref(db, "time/");
-        
+
         const handleData = (snapshot) => {
             const data = snapshot.val();
             if (data) {
@@ -57,9 +57,7 @@ function Dashboard() {
 
                 // Set the latest noise data time
                 if (latestNoiseData.length > 0) {
-                    const latestTime = new Date(
-                        latestNoiseData[latestNoiseData.length - 1].time
-                    );
+                    const latestTime = new Date(latestNoiseData[latestNoiseData.length - 1].time);
                     setLatestNoiseTime(latestTime.toLocaleString());
                 }
 
@@ -84,8 +82,7 @@ function Dashboard() {
                     const hour = (currentTime.getHours() - i + 24) % 24;
                     if (hourlyData[hour]) {
                         const avg =
-                            hourlyData[hour].reduce((a, b) => a + b, 0) /
-                            hourlyData[hour].length;
+                            hourlyData[hour].reduce((a, b) => a + b, 0) / hourlyData[hour].length;
                         averages.push(avg);
                         labels.push(`${hour % 12 || 12}${hour >= 12 ? "PM" : "AM"}`);
                     } else {
